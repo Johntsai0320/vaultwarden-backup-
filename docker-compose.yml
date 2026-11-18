@@ -1,0 +1,80 @@
+# ==============================================================================
+# Synology NAS 容器部署：Vaultwarden + Vaultwarden-Backup (本機 + Google Drive)
+# 參考專案結構：Johntsai0320/LibreTV (.env + GHCR)、Johntsai0320/novel (NAS 掛載)
+# 適用介面：Synology Container Manager「專案 (Project)」或 docker compose CLI
+# ==============================================================================
+
+services:
+  vaultwarden:
+    # 使用 GHCR 官方多架構映像檔（支援 amd64 / arm64，避免 Docker Hub 拉取限流）
+    image: ${VAULTWARDEN_IMAGE:-ghcr.io/dani-garcia/vaultwarden:latest}
+    container_name: vaultwarden
+    restart: unless-stopped
+    ports:
+      # 預設映射 8200:80（避開 LibreTV 8080 與 novel 3000）
+      # 設定完 Synology 反向代理後，可於 .env 將 VAULTWARDEN_BIND_IP 改為 127.0.0.1
+      - "${VAULTWARDEN_BIND_IP:-0.0.0.0}:${VAULTWARDEN_PORT:-8200}:80"
+    environment:
+      # 時區
+      - TZ=${TZ:-Asia/Taipei}
+      # 服務對外網址（反向代理建好後請於 .env 改為 https://你的網域）
+      - DOMAIN=${DOMAIN:-http://localhost:8200}
+      # 是否開放註冊（個人帳號建立完成後請於 .env 改為 false 並重新套用專案）
+      - SIGNUPS_ALLOWED=${SIGNUPS_ALLOWED:-true}
+      # 是否允許邀請加入組織
+      - INVITATIONS_ALLOWED=${INVITATIONS_ALLOWED:-true}
+      # 管理後台 /admin Token（留空代表停用 /admin；建議於 .env 用單引號包住 Argon2id 雜湊）
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-}
+      # 停用密碼提示外洩風險
+      - SHOW_PASSWORD_HINT=${SHOW_PASSWORD_HINT:-false}
+      # 現代 Vaultwarden 預設已於 Port 80 (/notifications/hub) 啟用 WebSocket 即時同步
+      - ENABLE_WEBSOCKET=true
+    volumes:
+      # 持久化儲存 Vaultwarden 資料庫 (db.sqlite3)、RSA 金鑰、附件與設定
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  backup:
+    image: ${BACKUP_IMAGE:-ghcr.io/ttionya/vaultwarden-backup:latest}
+    container_name: vaultwarden-backup
+    restart: unless-stopped
+    depends_on:
+      vaultwarden:
+        condition: service_healthy
+    environment:
+      # 必填：備份壓縮密碼（在 .env 中設定，缺失時啟動即報錯提醒）
+      - ZIP_PASSWORD=${ZIP_PASSWORD:?請先複製 .env.example 為 .env 並設定 ZIP_PASSWORD}
+      - ZIP_ENABLE=${ZIP_ENABLE:-TRUE}
+      - ZIP_TYPE=${ZIP_TYPE:-7z}
+      # Vaultwarden 資料路徑（對應下方 volumes 掛載點）
+      - DATA_DIR=/bitwarden/data
+      # 時區與排程（預設台灣時間每日凌晨 03:00 自動透過 SQLite .backup API 熱備份）
+      - TIMEZONE=${TZ:-Asia/Taipei}
+      - CRON=${BACKUP_CRON:-0 3 * * *}
+      - BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS:-30}
+      - BACKUP_FILE_SUFFIX=${BACKUP_FILE_SUFFIX:-%Y%m%d_%H%M%S}
+      - DISPLAY_NAME=${DISPLAY_NAME:-NAS-Vaultwarden}
+      # 第一備份目標：NAS 本機 ./backups（對應 rclone/rclone.conf 內的 [BitwardenBackup]）
+      - RCLONE_REMOTE_NAME=${RCLONE_REMOTE_NAME:-BitwardenBackup}
+      - RCLONE_REMOTE_DIR=${RCLONE_REMOTE_DIR:-/backups}
+      # 第二備份目標：Google Drive 異地備份（對應 rclone/rclone.conf 內的 [GoogleDrive]）
+      # 若尚未完成 Google Drive 授權，可暫時在 .env 將 RCLONE_REMOTE_NAME_1 留空
+      - RCLONE_REMOTE_NAME_1=${RCLONE_REMOTE_NAME_1:-}
+      - RCLONE_REMOTE_DIR_1=${RCLONE_REMOTE_DIR_1:-}
+      # 可選：Rclone 全域參數（請勿加入 -P 等會改變輸出的參數，以免影響過期檔清理）
+      - RCLONE_GLOBAL_FLAG=${RCLONE_GLOBAL_FLAG:-}
+      # 可選：備份成功／失敗 Webhook 通知（Healthchecks.io / Uptime Kuma）
+      - PING_URL_WHEN_SUCCESS=${PING_URL_WHEN_SUCCESS:-}
+      - PING_URL_WHEN_FAILURE=${PING_URL_WHEN_FAILURE:-}
+    volumes:
+      # 掛載與 Vaultwarden 相同的 data 目錄以進行熱備份（需可讀寫以相容 SQLite WAL 模式）
+      - ./data:/bitwarden/data
+      # 掛載 NAS 本機備份輸出資料夾
+      - ./backups:/backups
+      # 掛載 rclone 設定目錄（對應容器內 /config/rclone/rclone.conf）
+      - ./rclone:/config/rclone

@@ -1,0 +1,19 @@
+# ==============================================================================
+# Rclone 設定檔範本（請先複製為 rclone/rclone.conf）
+#   cp rclone/rclone.conf.example rclone/rclone.conf
+# 掛載位置：NAS ./rclone/rclone.conf -> 容器內 /config/rclone/rclone.conf
+# 注意：rclone.conf 已被 .gitignore 忽略，完成 Google Drive 授權後不會被誤推至 GitHub
+# ==============================================================================
+
+# 第一備份目標：NAS 本機 ./backups（免授權即可運作）
+[BitwardenBackup]
+type = local
+
+# ==============================================================================
+# 第二備份目標：Google Drive 異地備份（請透過以下指令產生 [GoogleDrive] 區段）
+#   docker run --rm -it \
+#     -v /volume1/docker/vaultwarden/rclone:/config/rclone \
+#     ghcr.io/ttionya/vaultwarden-backup:latest \
+#     rclone config
+# 完成授權後，rclone 會自動在下方追加 [GoogleDrive] 與 OAuth token。
+# ==============================================================================

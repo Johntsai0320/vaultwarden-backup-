@@ -1,0 +1,20 @@
+# 敏感環境設定檔（含管理員 Token 與備份加密密碼，請勿提交至 Git）
+.env
+
+# Vaultwarden 執行期資料庫與加密金鑰
+data/*
+!data/.gitkeep
+
+# 本地壓縮備份檔案
+backups/*
+!backups/.gitkeep
+
+# Rclone 設定檔含 Google Drive OAuth Token，必須忽略以防外洩憑證
+rclone/*
+!rclone/.gitkeep
+!rclone/rclone.conf.example
+
+# 系統與暫存檔案
+*.log
+.DS_Store
+@eaDir/
